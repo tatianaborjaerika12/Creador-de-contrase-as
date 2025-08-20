@@ -1,1 +1,6 @@
-Conf_Autoria_jefferson
+git init
+git add .
+git commit -m "Generador de contraseñas"
+git branch -M main
+git remote add origin https://github.com/tatianaborjaerika12
+git push -u origin main
