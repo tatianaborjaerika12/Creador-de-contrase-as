@@ -1,1 +1,126 @@
-propiedad_Jefferson_
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+import argparse
+import secrets
+import string
+from typing import List
+
+SIMILARES = set("il1Lo0O")
+AMBIGUOS = set("{}[]()/\\'`~,;:.<>")
+
+def build_charset(use_lower, use_upper, use_digits, use_symbols, exclude_similar, avoid_ambiguous):
+    charset = ""
+    if use_lower: charset += string.ascii_lowercase
+    if use_upper: charset += string.ascii_uppercase
+    if use_digits: charset += string.digits
+    if use_symbols: charset += "!@#$%^&*-=+?_"
+    if exclude_similar: charset = ''.join(ch for ch in charset if ch not in SIMILARES)
+    if avoid_ambiguous: charset = ''.join(ch for ch in charset if ch not in AMBIGUOS)
+    return charset
+
+def ensure_minimums(password_chars, pools):
+    idxs = list(range(len(password_chars)))
+    secrets.SystemRandom().shuffle(idxs)
+    for pool, i in zip([p for p in pools if p], idxs):
+        password_chars[i] = secrets.choice(pool)
+
+def has_sequences(pw, max_run=3):
+    if len(pw) < max_run: return False
+    def runs(s):
+        run = 1
+        for i in range(1, len(s)):
+            if ord(s[i]) - ord(s[i-1]) == 1:
+                run += 1
+                if run >= max_run: return True
+            else: run = 1
+        return False
+    lower = ''.join(c for c in pw if c.isalpha()).lower()
+    digits = ''.join(c for c in pw if c.isdigit())
+    return runs(lower) or runs(digits)
+
+def generate_password(length=12, use_lower=True, use_upper=True, use_digits=True, use_symbols=True,
+                      exclude_similar=True, avoid_ambiguous=True, no_repeats=False, no_sequences_flag=True,
+                      max_attempts=1000):
+    if length < 4: raise ValueError("La longitud mínima recomendada es 4.")
+    pools = []
+    if use_lower: pools.append(''.join(ch for ch in string.ascii_lowercase if (ch not in SIMILARES if exclude_similar else True)))
+    if use_upper: pools.append(''.join(ch for ch in string.ascii_uppercase if (ch not in SIMILARES if exclude_similar else True)))
+    if use_digits: pools.append(''.join(ch for ch in string.digits if (ch not in SIMILARES if exclude_similar else True)))
+    if use_symbols:
+        base_symbols = "!@#$%^&*-=+?_"
+        pools.append(''.join(ch for ch in base_symbols if (ch not in AMBIGUOS if avoid_ambiguous else True)))
+    charset = build_charset(use_lower, use_upper, use_digits, use_symbols, exclude_similar, avoid_ambiguous)
+    if not charset: raise ValueError("No hay caracteres disponibles.")
+    rng = secrets.SystemRandom()
+    for _ in range(max_attempts):
+        password_chars = [''] * length
+        ensure_minimums(password_chars, pools)
+        for i in range(length):
+            if password_chars[i] == '':
+                c = rng.choice(charset)
+                if no_repeats:
+                    while i > 0 and c == password_chars[i-1]:
+                        c = rng.choice(charset)
+                password_chars[i] = c
+        pw = ''.join(password_chars)
+        if no_sequences_flag and has_sequences(pw): continue
+        return pw
+    raise RuntimeError("No se pudo generar una contraseña válida.")
+
+def score_password(pw):
+    unique = len(set(pw))
+    length = len(pw)
+    variety = sum([any(c.islower() for c in pw), any(c.isupper() for c in pw),
+                   any(c.isdigit() for c in pw), any(c in "!@#$%^&*-=+?_" for c in pw)])
+    score = unique * 2 + length + variety * 4
+    return min(100, score)
+
+def describe_strength(score):
+    if score >= 80: return "Muy fuerte"
+    if score >= 60: return "Fuerte"
+    if score >= 40: return "Media"
+    return "Débil"
+
+def parse_bool(s): return str(s).lower() in {"1","true","t","yes","y","si","sí"}
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--length", type=int, default=16)
+    parser.add_argument("--no-lower", type=parse_bool, default=False)
+    parser.add_argument("--no-upper", type=parse_bool, default=False)
+    parser.add_argument("--no-digits", type=parse_bool, default=False)
+    parser.add_argument("--symbols", type=parse_bool, default=True)
+    parser.add_argument("--exclude-similar", type=parse_bool, default=True)
+    parser.add_argument("--avoid-ambiguous", type=parse_bool, default=True)
+    parser.add_argument("--no-repeats", type=parse_bool, default=True)
+    parser.add_argument("--no-sequences", dest="no_sequences_flag", type=parse_bool, default=True)
+    parser.add_argument("--count", type=int, default=5)
+    parser.add_argument("--interactive", type=parse_bool, default=False)
+    args = parser.parse_args(argv)
+    if args.interactive:
+        try: args.length = int(input("Longitud: ").strip() or "16")
+        except ValueError: args.length = 16
+        args.no_lower = parse_bool(input("¿Desactivar minúsculas?: ").strip() or "False")
+        args.no_upper = parse_bool(input("¿Desactivar mayúsculas?: ").strip() or "False")
+        args.no_digits = parse_bool(input("¿Desactivar dígitos?: ").strip() or "False")
+        args.symbols = parse_bool(input("¿Incluir símbolos?: ").strip() or "True")
+        args.exclude_similar = parse_bool(input("¿Excluir similares?: ").strip() or "True")
+        args.avoid_ambiguous = parse_bool(input("¿Evitar ambiguos?: ").strip() or "True")
+        args.no_repeats = parse_bool(input("¿Evitar repeticiones?: ").strip() or "True")
+        args.no_sequences_flag = parse_bool(input("¿Evitar secuencias?: ").strip() or "True")
+        try: args.count = int(input("¿Cuántas contraseñas?: ").strip() or "5")
+        except ValueError: args.count = 5
+    use_lower = not args.no_lower
+    use_upper = not args.no_upper
+    use_digits = not args.no_digits
+    use_symbols = args.symbols
+    for i in range(args.count):
+        pw = generate_password(length=args.length, use_lower=use_lower, use_upper=use_upper,
+                               use_digits=use_digits, use_symbols=use_symbols,
+                               exclude_similar=args.exclude_similar, avoid_ambiguous=args.avoid_ambiguous,
+                               no_repeats=args.no_repeats, no_sequences_flag=args.no_sequences_flag)
+        score = score_password(pw)
+        print(f"{i+1:02d}) {pw}  |  fuerza≈{score}/100 ({describe_strength(score)})")
+
+if __name__ == "__main__":
+    main()
